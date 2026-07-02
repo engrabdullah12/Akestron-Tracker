@@ -59,7 +59,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Serve frontend static build files in production/standalone mode
-const distPath = path.join(__dirname, '../client/dist');
+const distPath = path.join(__dirname, '../dist');
 app.use(express.static(distPath));
 
 // Fallback for single page application routing
