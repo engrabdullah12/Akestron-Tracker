@@ -7,10 +7,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Detect database mode
 const isPostgres = !!process.env.DATABASE_URL;
 
-if (process.env.VERCEL && !isPostgres) {
-  throw new Error('FATAL: DATABASE_URL environment variable is missing on Vercel! Please add your Supabase connection string.');
-}
-
 let pgPool = null;
 let sqliteDb = null;
 
@@ -91,10 +87,17 @@ export const dbAll = async (sql, params = []) => {
 
 // Initialize database tables
 export const initDb = async () => {
+  // Validate that Vercel has the database url configured
+  if (process.env.VERCEL && !isPostgres) {
+    throw new Error('FATAL: DATABASE_URL environment variable is missing on Vercel! Please add your Supabase connection string in your Vercel Project Settings.');
+  }
+
   // Dynamically import sqlite3 only in SQLite local mode
   if (!isPostgres && !sqliteDb) {
     try {
-      const sqlite3Module = await import('sqlite3');
+      // Hiding module name from static analyzer to prevent bundling compilation errors on Vercel
+      const sqliteModuleName = 'sqlite3';
+      const sqlite3Module = await import(sqliteModuleName);
       const sqlite3 = sqlite3Module.default;
       const dbPath = path.resolve(__dirname, process.env.DATABASE_FILE || 'database.db');
       

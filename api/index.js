@@ -45,7 +45,20 @@ const ensureDb = async (req, res, next) => {
   }
 };
 
-// Apply database initializer middleware to all API requests
+// Public environment verification endpoint (excludes sensitive credentials)
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+    databaseUrlLength: process.env.DATABASE_URL ? process.env.DATABASE_URL.length : 0,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    jwtSecretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0,
+    isVercel: !!process.env.VERCEL,
+    nodeEnv: process.env.NODE_ENV,
+    isPostgresMode: !!process.env.DATABASE_URL
+  });
+});
+
+// Apply database initializer middleware to all other API requests
 app.use('/api', ensureDb);
 
 // API Endpoints
