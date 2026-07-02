@@ -24,7 +24,7 @@ router.post('/register', async (req, res) => {
 
     // Determine role (first user becomes Admin, subsequent users become Members)
     const countRow = await dbGet('SELECT COUNT(*) as count FROM users');
-    const role = countRow.count === 0 ? 'admin' : 'member';
+    const role = Number(countRow.count) === 0 ? 'admin' : 'member';
 
     // Hash password
     const salt = await bcrypt.genSalt(10);
