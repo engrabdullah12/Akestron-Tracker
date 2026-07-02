@@ -10,17 +10,46 @@ const isPostgres = !!process.env.DATABASE_URL;
 let pgPool = null;
 let sqliteDb = null;
 
-if (isPostgres) {
-  console.log('[Database] Connecting to PostgreSQL database (Production Mode)...');
-  pgPool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false
+// Lazy getter for PG connection pool to prevent synchronous boot-time URL parsing crashes
+const getPgPool = () => {
+  if (!isPostgres) {
+    throw new Error('Database is not configured for PostgreSQL mode.');
+  }
+  if (!pgPool) {
+    console.log('[Database] Creating PostgreSQL connection pool...');
+    // Handle URL encoding of password if the user pasted a raw '@' in the password
+    let connString = process.env.DATABASE_URL;
+    
+    // Auto-fix raw '@' in password if present
+    // A connection string usually looks like: postgres://user:password@host/db
+    // If there are multiple '@' characters, the password contains one, which needs to be encoded.
+    const parts = connString.split('@');
+    if (parts.length > 2) {
+      console.log('[Database] Auto-encoding special characters in database URL...');
+      const hostDb = parts.pop(); // The last part is host/db
+      const auth = parts.join('@'); // Join the rest (user:password)
+      const protocolIndex = auth.indexOf('://');
+      if (protocolIndex !== -1) {
+        const protocol = auth.substring(0, protocolIndex + 3);
+        const credentials = auth.substring(protocolIndex + 3);
+        const credParts = credentials.split(':');
+        if (credParts.length > 1) {
+          const username = credParts[0];
+          const password = credParts.slice(1).join(':');
+          connString = `${protocol}${username}:${encodeURIComponent(password)}@${hostDb}`;
+        }
+      }
     }
-  });
-} else {
-  console.log('[Database] SQLite mode detected. Initialization will occur on startup...');
-}
+
+    pgPool = new pg.Pool({
+      connectionString: connString,
+      ssl: {
+        rejectUnauthorized: false
+      }
+    });
+  }
+  return pgPool;
+};
 
 // Convert placeholders
 const convertSqlPlaceholders = (sql) => {
@@ -37,7 +66,7 @@ export const dbRun = async (sql, params = []) => {
     if (sql.trim().toUpperCase().startsWith('INSERT INTO') && !sql.toUpperCase().includes('RETURNING')) {
       adaptedSql += ' RETURNING id';
     }
-    const res = await pgPool.query(adaptedSql, params);
+    const res = await getPgPool().query(adaptedSql, params);
     const lastID = res.rows[0]?.id || null;
     return { id: lastID, changes: res.rowCount };
   } else {
@@ -55,7 +84,7 @@ export const dbGet = async (sql, params = []) => {
   const pgSql = convertSqlPlaceholders(sql);
   
   if (isPostgres) {
-    const res = await pgPool.query(pgSql, params);
+    const res = await getPgPool().query(pgSql, params);
     return res.rows[0] || null;
   } else {
     return new Promise((resolve, reject) => {
@@ -72,7 +101,7 @@ export const dbAll = async (sql, params = []) => {
   const pgSql = convertSqlPlaceholders(sql);
   
   if (isPostgres) {
-    const res = await pgPool.query(pgSql, params);
+    const res = await getPgPool().query(pgSql, params);
     return res.rows;
   } else {
     return new Promise((resolve, reject) => {
@@ -95,7 +124,6 @@ export const initDb = async () => {
   // Dynamically import sqlite3 only in SQLite local mode
   if (!isPostgres && !sqliteDb) {
     try {
-      // Hiding module name from static analyzer to prevent bundling compilation errors on Vercel
       const sqliteModuleName = 'sqlite3';
       const sqlite3Module = await import(sqliteModuleName);
       const sqlite3 = sqlite3Module.default;
