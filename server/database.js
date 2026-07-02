@@ -7,6 +7,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Detect database mode
 const isPostgres = !!process.env.DATABASE_URL;
 
+if (process.env.VERCEL && !isPostgres) {
+  throw new Error('FATAL: DATABASE_URL environment variable is missing on Vercel! Please add your Supabase connection string.');
+}
+
 let pgPool = null;
 let sqliteDb = null;
 
