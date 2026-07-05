@@ -1,15 +1,17 @@
 import express from 'express';
 import { dbGet, dbRun, dbAll } from '../database.js';
-import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get active time tracker status for current user
-router.get('/status', authenticateToken, async (req, res) => {
+router.get('/status', async (req, res) => {
+  const userName = req.query.userName;
+  if (!userName) return res.status(400).json({ message: 'userName is required' });
+
   try {
     const activeLog = await dbGet(
-      'SELECT id, task_description, start_time FROM time_logs WHERE user_id = ? AND is_active = 1',
-      [req.user.id]
+      'SELECT id, task_description, start_time FROM team_time_logs WHERE user_name = ? AND is_active = 1',
+      [userName]
     );
     if (activeLog) {
       return res.json({ active: true, log: activeLog });
@@ -22,34 +24,35 @@ router.get('/status', authenticateToken, async (req, res) => {
 });
 
 // Start tracking a task
-router.post('/start', authenticateToken, async (req, res) => {
-  const { task_description } = req.body;
-  const userId = req.user.id;
+router.post('/start', async (req, res) => {
+  const { task_description, userName } = req.body;
+  if (!userName) return res.status(400).json({ message: 'userName is required' });
+
   const startTime = new Date().toISOString();
 
   try {
-    // 1. Automatically stop any active log running for the user to prevent orphaned sessions
+    // 1. Automatically stop any active log running for the user
     const activeLog = await dbGet(
-      'SELECT * FROM time_logs WHERE user_id = ? AND is_active = 1',
-      [userId]
+      'SELECT * FROM team_time_logs WHERE user_name = ? AND is_active = 1',
+      [userName]
     );
 
     if (activeLog) {
       const endTime = new Date().toISOString();
       const duration = Math.max(0, Math.round((new Date(endTime) - new Date(activeLog.start_time)) / 1000));
       await dbRun(
-        'UPDATE time_logs SET end_time = ?, duration_seconds = ?, is_active = 0 WHERE id = ?',
+        'UPDATE team_time_logs SET end_time = ?, duration_seconds = ?, is_active = 0 WHERE id = ?',
         [endTime, duration, activeLog.id]
       );
     }
 
     // 2. Start a new log
     const result = await dbRun(
-      'INSERT INTO time_logs (user_id, task_description, start_time, is_active) VALUES (?, ?, ?, 1)',
-      [userId, task_description || 'Working on Akestron Task', startTime]
+      'INSERT INTO team_time_logs (user_name, task_description, start_time, is_active) VALUES (?, ?, ?, 1)',
+      [userName, task_description || 'Working on Akestron Task', startTime]
     );
 
-    const newLog = await dbGet('SELECT * FROM time_logs WHERE id = ?', [result.id]);
+    const newLog = await dbGet('SELECT * FROM team_time_logs WHERE id = ?', [result.id]);
     res.status(201).json({ message: 'Time tracking started', log: newLog });
   } catch (error) {
     console.error('Error starting tracker:', error);
@@ -58,14 +61,16 @@ router.post('/start', authenticateToken, async (req, res) => {
 });
 
 // Stop current tracking task
-router.post('/stop', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
+router.post('/stop', async (req, res) => {
+  const { userName } = req.body;
+  if (!userName) return res.status(400).json({ message: 'userName is required' });
+
   const endTime = new Date().toISOString();
 
   try {
     const activeLog = await dbGet(
-      'SELECT * FROM time_logs WHERE user_id = ? AND is_active = 1',
-      [userId]
+      'SELECT * FROM team_time_logs WHERE user_name = ? AND is_active = 1',
+      [userName]
     );
 
     if (!activeLog) {
@@ -75,11 +80,11 @@ router.post('/stop', authenticateToken, async (req, res) => {
     const duration = Math.max(0, Math.round((new Date(endTime) - new Date(activeLog.start_time)) / 1000));
 
     await dbRun(
-      'UPDATE time_logs SET end_time = ?, duration_seconds = ?, is_active = 0 WHERE id = ?',
+      'UPDATE team_time_logs SET end_time = ?, duration_seconds = ?, is_active = 0 WHERE id = ?',
       [endTime, duration, activeLog.id]
     );
 
-    const updatedLog = await dbGet('SELECT * FROM time_logs WHERE id = ?', [activeLog.id]);
+    const updatedLog = await dbGet('SELECT * FROM team_time_logs WHERE id = ?', [activeLog.id]);
     res.json({ message: 'Time tracking stopped', log: updatedLog });
   } catch (error) {
     console.error('Error stopping tracker:', error);
@@ -87,16 +92,15 @@ router.post('/stop', authenticateToken, async (req, res) => {
   }
 });
 
-// Get user's completed logs
-router.get('/my-logs', authenticateToken, async (req, res) => {
+// Get team's completed logs
+router.get('/team-logs', async (req, res) => {
   try {
     const logs = await dbAll(
-      'SELECT * FROM time_logs WHERE user_id = ? AND is_active = 0 ORDER BY start_time DESC LIMIT 100',
-      [req.user.id]
+      'SELECT * FROM team_time_logs WHERE is_active = 0 ORDER BY start_time DESC LIMIT 100'
     );
     res.json({ logs });
   } catch (error) {
-    console.error('Error fetching user logs:', error);
+    console.error('Error fetching team logs:', error);
     res.status(500).json({ message: 'Error fetching time logs' });
   }
 });

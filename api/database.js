@@ -4,8 +4,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Detect database mode
-const isPostgres = !!process.env.DATABASE_URL;
+// Detect database mode based on POSTGRES_URL or DATABASE_URL existence
+const isPostgres = !!process.env.POSTGRES_URL || !!process.env.DATABASE_URL;
 
 let pgPool = null;
 let sqliteDb = null;
@@ -15,14 +15,12 @@ const getPgPool = () => {
   if (!isPostgres) {
     throw new Error('Database is not configured for PostgreSQL mode.');
   }
+  
   if (!pgPool) {
     console.log('[Database] Creating PostgreSQL connection pool...');
-    // Handle URL encoding of password if the user pasted a raw '@' in the password
-    let connString = process.env.DATABASE_URL;
+    let connString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
     
-    // Auto-fix raw '@' in password if present
-    // A connection string usually looks like: postgres://user:password@host/db
-    // If there are multiple '@' characters, the password contains one, which needs to be encoded.
+    // Auto-fix raw '@' in password if present in the connection string
     const parts = connString.split('@');
     if (parts.length > 2) {
       console.log('[Database] Auto-encoding special characters in database URL...');
@@ -51,7 +49,7 @@ const getPgPool = () => {
   return pgPool;
 };
 
-// Convert placeholders
+// Convert SQLite placeholders (?) to PostgreSQL placeholders ($1, $2, ...)
 const convertSqlPlaceholders = (sql) => {
   if (!isPostgres) return sql;
   let index = 1;
@@ -59,9 +57,8 @@ const convertSqlPlaceholders = (sql) => {
 };
 
 export const dbRun = async (sql, params = []) => {
-  const pgSql = convertSqlPlaceholders(sql);
-  
   if (isPostgres) {
+    const pgSql = convertSqlPlaceholders(sql);
     let adaptedSql = pgSql;
     if (sql.trim().toUpperCase().startsWith('INSERT INTO') && !sql.toUpperCase().includes('RETURNING')) {
       adaptedSql += ' RETURNING id';
@@ -71,7 +68,9 @@ export const dbRun = async (sql, params = []) => {
     return { id: lastID, changes: res.rowCount };
   } else {
     return new Promise((resolve, reject) => {
-      if (!sqliteDb) return reject(new Error('SQLite database not initialized'));
+      if (!sqliteDb) {
+        return reject(new Error('SQLite database not initialized. Please configure DATABASE_URL or check your local setup.'));
+      }
       sqliteDb.run(sql, params, function (err) {
         if (err) reject(err);
         else resolve({ id: this.lastID, changes: this.changes });
@@ -81,14 +80,13 @@ export const dbRun = async (sql, params = []) => {
 };
 
 export const dbGet = async (sql, params = []) => {
-  const pgSql = convertSqlPlaceholders(sql);
-  
   if (isPostgres) {
+    const pgSql = convertSqlPlaceholders(sql);
     const res = await getPgPool().query(pgSql, params);
     return res.rows[0] || null;
   } else {
     return new Promise((resolve, reject) => {
-      if (!sqliteDb) return reject(new Error('SQLite database not initialized'));
+      if (!sqliteDb) return reject(new Error('SQLite database not initialized.'));
       sqliteDb.get(sql, params, (err, row) => {
         if (err) reject(err);
         else resolve(row);
@@ -98,14 +96,13 @@ export const dbGet = async (sql, params = []) => {
 };
 
 export const dbAll = async (sql, params = []) => {
-  const pgSql = convertSqlPlaceholders(sql);
-  
   if (isPostgres) {
+    const pgSql = convertSqlPlaceholders(sql);
     const res = await getPgPool().query(pgSql, params);
     return res.rows;
   } else {
     return new Promise((resolve, reject) => {
-      if (!sqliteDb) return reject(new Error('SQLite database not initialized'));
+      if (!sqliteDb) return reject(new Error('SQLite database not initialized.'));
       sqliteDb.all(sql, params, (err, rows) => {
         if (err) reject(err);
         else resolve(rows);
@@ -116,9 +113,8 @@ export const dbAll = async (sql, params = []) => {
 
 // Initialize database tables
 export const initDb = async () => {
-  // Validate that Vercel has the database url configured
   if (process.env.VERCEL && !isPostgres) {
-    throw new Error('FATAL: DATABASE_URL environment variable is missing on Vercel! Please add your Supabase connection string in your Vercel Project Settings.');
+    throw new Error('FATAL: POSTGRES_URL environment variable is missing on Vercel! Please add Vercel Postgres to your project.');
   }
 
   // Dynamically import sqlite3 only in SQLite local mode
@@ -137,45 +133,31 @@ export const initDb = async () => {
         }
       });
     } catch (err) {
-      console.error('Failed to dynamically load sqlite3:', err);
-      throw err;
+      console.error('[Database] Failed to load sqlite3 package dynamically:', err);
+      throw new Error('Failed to load sqlite3 package for local database. Run "npm install sqlite3" or configure DATABASE_URL.');
     }
   }
 
-  let usersTableSql = `
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `;
-
   let logsTableSql = `
-    CREATE TABLE IF NOT EXISTS time_logs (
+    CREATE TABLE IF NOT EXISTS team_time_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      user_name TEXT NOT NULL,
       task_description TEXT,
       start_time TIMESTAMP NOT NULL,
       end_time TIMESTAMP,
       duration_seconds INTEGER DEFAULT 0,
-      is_active INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      is_active INTEGER DEFAULT 0, -- 1 = active, 0 = stopped
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `;
 
   if (isPostgres) {
-    usersTableSql = usersTableSql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY');
     logsTableSql = logsTableSql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY');
   }
 
   try {
-    await dbRun(usersTableSql);
     await dbRun(logsTableSql);
-    console.log('[Database] Database tables verified/created successfully.');
+    console.log(`[Database] Database tables verified/created successfully on ${isPostgres ? 'PostgreSQL (Vercel/Cloud)' : 'SQLite (Local)'}.`);
   } catch (error) {
     console.error('[Database] Error initializing database tables:', error);
     throw error;
@@ -183,3 +165,5 @@ export const initDb = async () => {
 };
 
 export default { dbRun, dbGet, dbAll, initDb };
+
+

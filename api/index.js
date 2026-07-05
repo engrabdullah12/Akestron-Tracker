@@ -4,9 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb } from './database.js';
-import authRoutes from './routes/auth.js';
 import trackerRoutes from './routes/tracker.js';
-import adminRoutes from './routes/admin.js';
 
 // Load environment variables
 dotenv.config();
@@ -48,13 +46,11 @@ const ensureDb = async (req, res, next) => {
 // Public environment verification endpoint (excludes sensitive credentials)
 app.get('/api/debug-env', (req, res) => {
   res.json({
-    hasDatabaseUrl: !!process.env.DATABASE_URL,
-    databaseUrlLength: process.env.DATABASE_URL ? process.env.DATABASE_URL.length : 0,
+    hasDatabaseUrl: !!(process.env.POSTGRES_URL || process.env.DATABASE_URL),
     hasJwtSecret: !!process.env.JWT_SECRET,
-    jwtSecretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0,
     isVercel: !!process.env.VERCEL,
     nodeEnv: process.env.NODE_ENV,
-    isPostgresMode: !!process.env.DATABASE_URL
+    isPostgresMode: !!(process.env.POSTGRES_URL || process.env.DATABASE_URL)
   });
 });
 
@@ -62,9 +58,7 @@ app.get('/api/debug-env', (req, res) => {
 app.use('/api', ensureDb);
 
 // API Endpoints
-app.use('/api/auth', authRoutes);
 app.use('/api/tracker', trackerRoutes);
-app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

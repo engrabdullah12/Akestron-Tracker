@@ -1,222 +1,70 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Play, 
-  Square, 
-  Clock, 
-  Users, 
-  LogOut, 
-  Lock, 
-  Mail, 
-  User, 
-  Download, 
-  CheckCircle2, 
-  Activity, 
-  TrendingUp, 
-  Loader2,
-  AlertCircle
-} from 'lucide-react';
+import { Play, Square, Clock, Activity, Loader2 } from 'lucide-react';
 
 const API_BASE = window.location.origin.includes('5173') 
   ? 'http://localhost:5000/api' 
   : '/api';
 
 export default function App() {
-  // Authentication State
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [user, setUser] = useState(null);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
-  const [authError, setAuthError] = useState('');
-  const [authSuccess, setAuthSuccess] = useState('');
-  
-  // Auth Form Fields
-  const [authName, setAuthName] = useState('');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
+  const [userName, setUserName] = useState(localStorage.getItem('userName') || '');
+  const [nameInput, setNameInput] = useState('');
 
-  // Active View State
-  const [currentView, setCurrentView] = useState('tracker'); // 'tracker' | 'history' | 'admin'
-
-  // Time Tracker State
   const [taskDescription, setTaskDescription] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [activeLog, setActiveLog] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [myLogs, setMyLogs] = useState([]);
+  const [teamLogs, setTeamLogs] = useState([]);
   const [trackerLoading, setTrackerLoading] = useState(false);
 
-  // Admin Board State
-  const [usersList, setUsersList] = useState([]);
-  const [activeSessions, setActiveSessions] = useState([]);
-  const [teamLogs, setTeamLogs] = useState([]);
-  const [adminUserFilter, setAdminUserFilter] = useState('');
-  const [adminLoading, setAdminLoading] = useState(false);
-
-  // Interval reference for stopwatch tick
   const timerRef = useRef(null);
 
-  // Fetch current user details on token change
   useEffect(() => {
-    if (token) {
-      localStorage.setItem('token', token);
-      fetchUserProfile();
-    } else {
-      localStorage.removeItem('token');
-      setUser(null);
-      stopTimerInterval();
-      setIsActive(false);
-      setActiveLog(null);
-      setElapsedSeconds(0);
-    }
-  }, [token]);
-
-  // Fetch tracking status and logs when user context changes
-  useEffect(() => {
-    if (user) {
+    if (userName) {
       fetchTrackerStatus();
-      loadMyLogs();
-      if (user.role === 'admin') {
-        loadAdminData();
-      }
+      loadTeamLogs();
     }
-  }, [user]);
+  }, [userName]);
 
-  // Handle active session seconds counting
   useEffect(() => {
     if (isActive && activeLog) {
-      // Set initial count
       const startMs = new Date(activeLog.start_time).getTime();
       const currentMs = new Date().getTime();
       setElapsedSeconds(Math.max(0, Math.floor((currentMs - startMs) / 1000)));
 
-      // Tick every second
       timerRef.current = setInterval(() => {
         const delta = Math.max(0, Math.floor((new Date().getTime() - startMs) / 1000));
         setElapsedSeconds(delta);
       }, 1000);
     } else {
-      stopTimerInterval();
+      if (timerRef.current) clearInterval(timerRef.current);
     }
-
-    return () => stopTimerInterval();
+    return () => clearInterval(timerRef.current);
   }, [isActive, activeLog]);
 
-  const stopTimerInterval = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  // Helper API Fetcher
-  const apiFetch = async (endpoint, options = {}) => {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers: { ...headers, ...options.headers }
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || 'Something went wrong');
-    }
-    return data;
-  };
-
-  // User Profile
-  const fetchUserProfile = async () => {
-    try {
-      const data = await apiFetch('/auth/me');
-      setUser(data.user);
-    } catch (err) {
-      console.error('Fetch profile failed:', err.message);
-      handleLogout();
-    }
-  };
-
-  // Login handler
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
-    setAuthLoading(true);
-
-    try {
-      const data = await apiFetch('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email: authEmail, password: authPassword })
-      });
-      setToken(data.token);
-      setAuthSuccess('Logged in successfully!');
-      // Clear forms
-      setAuthEmail('');
-      setAuthPassword('');
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Register handler
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
-    setAuthLoading(true);
-
-    try {
-      const data = await apiFetch('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({ name: authName, email: authEmail, password: authPassword })
-      });
-      setToken(data.token);
-      setAuthSuccess('Account created successfully!');
-      // Clear forms
-      setAuthName('');
-      setAuthEmail('');
-      setAuthPassword('');
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Logout handler
-  const handleLogout = () => {
-    setToken('');
-    setUser(null);
-    setCurrentView('tracker');
-  };
-
-  // Tracker APIs
   const fetchTrackerStatus = async () => {
     try {
-      const data = await apiFetch('/tracker/status');
+      const res = await fetch(`${API_BASE}/tracker/status?userName=${encodeURIComponent(userName)}`);
+      const data = await res.json();
       if (data.active) {
         setIsActive(true);
         setActiveLog(data.log);
-        setTaskDescription(data.log.task_description);
+        setTaskDescription(data.log.task_description || '');
       } else {
         setIsActive(false);
         setActiveLog(null);
       }
     } catch (err) {
-      console.error('Error fetching tracker status:', err.message);
+      console.error('Failed to fetch status', err);
     }
   };
 
-  const loadMyLogs = async () => {
+  const loadTeamLogs = async () => {
     try {
-      const data = await apiFetch('/tracker/my-logs');
-      setMyLogs(data.logs || []);
+      const res = await fetch(`${API_BASE}/tracker/team-logs`);
+      const data = await res.json();
+      setTeamLogs(data.logs || []);
     } catch (err) {
-      console.error('Error fetching logs:', err.message);
+      console.error('Failed to fetch logs', err);
     }
   };
 
@@ -224,614 +72,221 @@ export default function App() {
     e.preventDefault();
     setTrackerLoading(true);
     try {
-      const data = await apiFetch('/tracker/start', {
+      const res = await fetch(`${API_BASE}/tracker/start`, {
         method: 'POST',
-        body: JSON.stringify({ task_description: taskDescription })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_description: taskDescription, userName })
       });
-      setActiveLog(data.log);
-      setIsActive(true);
-      setElapsedSeconds(0);
+      const data = await res.json();
+      if (res.ok) {
+        setIsActive(true);
+        setActiveLog(data.log);
+      } else {
+        alert(data.message || 'Failed to start tracking');
+      }
     } catch (err) {
-      alert('Error starting time tracker: ' + err.message);
+      console.error('Start tracking error:', err);
     } finally {
       setTrackerLoading(false);
+      loadTeamLogs();
     }
   };
 
   const handleStopTracking = async () => {
     setTrackerLoading(true);
     try {
-      await apiFetch('/tracker/stop', { method: 'POST' });
-      setIsActive(false);
-      setActiveLog(null);
-      setTaskDescription('');
-      setElapsedSeconds(0);
-      loadMyLogs();
-      if (user?.role === 'admin') {
-        loadAdminData();
+      const res = await fetch(`${API_BASE}/tracker/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName })
+      });
+      if (res.ok) {
+        setIsActive(false);
+        setActiveLog(null);
+        setElapsedSeconds(0);
+        setTaskDescription('');
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Failed to stop tracking');
       }
     } catch (err) {
-      alert('Error stopping time tracker: ' + err.message);
+      console.error('Stop tracking error:', err);
     } finally {
       setTrackerLoading(false);
+      loadTeamLogs();
     }
   };
 
-  // Admin APIs
-  const loadAdminData = async () => {
-    setAdminLoading(true);
-    try {
-      const activeData = await apiFetch('/admin/active');
-      setActiveSessions(activeData.activeSessions || []);
+  const formatDuration = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
-      const usersData = await apiFetch('/admin/users');
-      setUsersList(usersData.users || []);
-
-      const logsData = await apiFetch(`/admin/logs${adminUserFilter ? `?userId=${adminUserFilter}` : ''}`);
-      setTeamLogs(logsData.logs || []);
-    } catch (err) {
-      console.error('Error loading admin details:', err.message);
-    } finally {
-      setAdminLoading(false);
+  const handleNameSubmit = (e) => {
+    e.preventDefault();
+    if (nameInput.trim()) {
+      localStorage.setItem('userName', nameInput.trim());
+      setUserName(nameInput.trim());
     }
   };
 
-  // Reload admin list when user filter is toggled
-  useEffect(() => {
-    if (user && user.role === 'admin') {
-      loadAdminData();
-    }
-  }, [adminUserFilter]);
-
-  // Utility to format seconds to HH:MM:SS
-  const formatTime = (totalSeconds) => {
-    const hrs = Math.floor(totalSeconds / 3600);
-    const mins = Math.floor((totalSeconds % 3600) / 60);
-    const secs = totalSeconds % 60;
-    return [
-      hrs.toString().padStart(2, '0'),
-      mins.toString().padStart(2, '0'),
-      secs.toString().padStart(2, '0')
-    ].join(':');
-  };
-
-  // Utility to format ISO dates to human-friendly local timestamps
-  const formatDateTime = (isoString) => {
-    if (!isoString) return '-';
-    const date = new Date(isoString);
-    return date.toLocaleDateString(undefined, { 
-      month: 'short', 
-      day: 'numeric' 
-    }) + ' ' + date.toLocaleTimeString(undefined, { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-  };
-
-  // Calculate stats for members
-  const getTodayTime = () => {
-    const todayStr = new Date().toDateString();
-    return myLogs
-      .filter(log => new Date(log.start_time).toDateString() === todayStr)
-      .reduce((acc, log) => acc + log.duration_seconds, 0);
-  };
-
-  const getWeeklyTime = () => {
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    return myLogs
-      .filter(log => new Date(log.start_time) >= oneWeekAgo)
-      .reduce((acc, log) => acc + log.duration_seconds, 0);
-  };
-
-  // Export to CSV trigger
-  const exportLogsToCSV = () => {
-    const logsToExport = user.role === 'admin' ? teamLogs : myLogs;
-    if (logsToExport.length === 0) {
-      alert('No logs available to export.');
-      return;
-    }
-
-    const headers = user.role === 'admin' 
-      ? ['User', 'Email', 'Task Description', 'Start Time', 'End Time', 'Duration (Seconds)', 'Duration (HH:MM:SS)']
-      : ['Task Description', 'Start Time', 'End Time', 'Duration (Seconds)', 'Duration (HH:MM:SS)'];
-
-    const rows = logsToExport.map(log => {
-      const row = [];
-      if (user.role === 'admin') {
-        row.push(log.user_name || 'N/A');
-        row.push(log.user_email || 'N/A');
-      }
-      row.push(log.task_description.replace(/"/g, '""'));
-      row.push(log.start_time);
-      row.push(log.end_time || '');
-      row.push(log.duration_seconds);
-      row.push(formatTime(log.duration_seconds));
-      return row;
-    });
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(r => r.map(val => `"${val}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `akestron_tracker_export_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Render Authentication Screen
-  if (!user) {
+  if (!userName) {
     return (
-      <div className="auth-page">
-        <div className="auth-card glass-panel">
-          <div className="auth-header">
-            <div className="auth-logo">
-              <Clock className="logo-dot" size={28} />
-              <span className="auth-logo-text">akestron<span style={{color: '#8b5cf6'}}>.com</span></span>
+      <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-6 text-white font-sans">
+        <div className="bg-neutral-800 p-8 rounded-2xl shadow-xl max-w-md w-full border border-neutral-700">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center text-blue-400">
+              <Clock size={32} />
             </div>
-            <h2 className="auth-title">
-              {authMode === 'login' ? 'Welcome Back' : 'Join Agency'}
-            </h2>
-            <p className="auth-subtitle">
-              {authMode === 'login' 
-                ? 'Sign in to track your work hours' 
-                : 'Create an account to join the Akestron team'}
-            </p>
           </div>
-
-          {authError && (
-            <div className="alert alert-danger">
-              <AlertCircle size={18} />
-              <span>{authError}</span>
+          <h2 className="text-2xl font-bold text-center mb-6">Welcome to Tracker</h2>
+          <form onSubmit={handleNameSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-neutral-400 mb-1">What is your name?</label>
+              <input 
+                type="text" 
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter your name"
+                required
+              />
             </div>
-          )}
-
-          {authSuccess && (
-            <div className="alert alert-success">
-              <CheckCircle2 size={18} />
-              <span>{authSuccess}</span>
-            </div>
-          )}
-
-          <form onSubmit={authMode === 'login' ? handleLogin : handleRegister}>
-            {authMode === 'register' && (
-              <div className="input-group">
-                <label className="input-label">Full Name</label>
-                <div style={{ position: 'relative' }}>
-                  <User size={18} style={{ position: 'absolute', left: 14, top: 14, color: '#64748b' }} />
-                  <input 
-                    type="text" 
-                    placeholder="Enter your name" 
-                    className="input-field" 
-                    value={authName}
-                    onChange={(e) => setAuthName(e.target.value)}
-                    style={{ paddingLeft: 44 }}
-                    required
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="input-group">
-              <label className="input-label">Work Email</label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={18} style={{ position: 'absolute', left: 14, top: 14, color: '#64748b' }} />
-                <input 
-                  type="email" 
-                  placeholder="name@akestron.com" 
-                  className="input-field" 
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  style={{ paddingLeft: 44 }}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="input-group" style={{ marginBottom: 28 }}>
-              <label className="input-label">Password</label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: 14, top: 14, color: '#64748b' }} />
-                <input 
-                  type="password" 
-                  placeholder="••••••••" 
-                  className="input-field" 
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  style={{ paddingLeft: 44 }}
-                  required
-                />
-              </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={authLoading}>
-              {authLoading ? (
-                <>
-                  <Loader2 size={18} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
-                  Processing...
-                </>
-              ) : (
-                authMode === 'login' ? 'Login' : 'Create Account'
-              )}
+            <button 
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium transition-colors"
+            >
+              Continue
             </button>
           </form>
-
-          <div className="auth-footer">
-            {authMode === 'login' ? (
-              <>
-                New to the team?{' '}
-                <a href="#" className="auth-link" onClick={() => { setAuthMode('register'); setAuthError(''); }}>
-                  Register here
-                </a>
-              </>
-            ) : (
-              <>
-                Already have an account?{' '}
-                <a href="#" className="auth-link" onClick={() => { setAuthMode('login'); setAuthError(''); }}>
-                  Login here
-                </a>
-              </>
-            )}
-          </div>
         </div>
       </div>
     );
   }
 
-  // Render Dashboard
   return (
-    <div className="app-container">
-      {/* Sidebar Navigation */}
-      <aside className="sidebar">
-        <div className="logo-container">
-          <Clock className="logo-dot" size={24} style={{ color: '#06b6d4' }} />
-          <span className="logo-text">akestron<span style={{ color: '#8b5cf6' }}>.com</span></span>
-        </div>
-
-        <nav className="sidebar-menu">
-          <button 
-            className={`menu-item ${currentView === 'tracker' ? 'active' : ''}`}
-            onClick={() => setCurrentView('tracker')}
-          >
-            <Clock size={18} />
-            <span>Time Tracker</span>
-          </button>
-          
-          <button 
-            className={`menu-item ${currentView === 'history' ? 'active' : ''}`}
-            onClick={() => { setCurrentView('history'); loadMyLogs(); }}
-          >
-            <TrendingUp size={18} />
-            <span>My Logs</span>
-          </button>
-
-          {user.role === 'admin' && (
-            <button 
-              className={`menu-item ${currentView === 'admin' ? 'active' : ''}`}
-              onClick={() => { setCurrentView('admin'); loadAdminData(); }}
-            >
-              <Users size={18} />
-              <span>Admin Panel</span>
-            </button>
-          )}
-        </nav>
-
-        <div className="sidebar-user">
-          <div className="user-profile-info">
-            <span className="user-profile-name">{user.name}</span>
-            <span className="user-profile-email">{user.email}</span>
-            <span className={`user-badge ${user.role === 'admin' ? 'badge-admin' : 'badge-member'}`}>
-              {user.role}
-            </span>
+    <div className="min-h-screen bg-neutral-900 text-white font-sans flex flex-col">
+      <header className="border-b border-neutral-800 bg-neutral-950 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-400">
+            <Clock size={24} />
           </div>
-
-          <button className="btn btn-secondary" style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }} onClick={handleLogout}>
-            <LogOut size={16} />
-            <span>Sign Out</span>
+          <h1 className="text-xl font-bold">Akestron Tracker</h1>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-neutral-400 text-sm">Logged in as <strong className="text-white">{userName}</strong></span>
+          <button 
+            onClick={() => {
+              localStorage.removeItem('userName');
+              setUserName('');
+            }}
+            className="text-xs text-neutral-500 hover:text-white"
+          >
+            Change
           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Panel Content */}
-      <main className="main-content">
+      <main className="flex-1 p-6 max-w-5xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* VIEW 1: TIME TRACKER */}
-        {currentView === 'tracker' && (
-          <div>
-            <div className="page-header">
-              <h1 className="page-title">Workspace</h1>
-              <p className="page-subtitle">Track your project hours and sync with Akestron agency dashboard.</p>
-            </div>
+        {/* Left Column: Tracker */}
+        <div className="md:col-span-1 space-y-6">
+          <div className={`p-6 rounded-2xl border ${isActive ? 'bg-blue-900/10 border-blue-800/50' : 'bg-neutral-800 border-neutral-700'}`}>
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Activity size={20} className={isActive ? 'text-blue-400' : 'text-neutral-500'} />
+              Time Tracker
+            </h2>
+            
+            <form onSubmit={handleStartTracking}>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-neutral-400 mb-2">What are you working on?</label>
+                <textarea
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
+                  disabled={isActive || trackerLoading}
+                  placeholder="e.g., Designing the new homepage..."
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 resize-none h-24"
+                  required
+                />
+              </div>
 
-            {/* Live Stopwatch Tracker */}
-            <div className="tracker-card glass-panel">
-              <form onSubmit={handleStartTracking} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <div className="tracker-inputs">
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label className="input-label">What are you working on?</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      placeholder="e.g. Fine-tuning LLM agent models, Akestron web platform design..."
-                      value={taskDescription}
-                      onChange={(e) => setTaskDescription(e.target.value)}
-                      disabled={isActive}
-                      required
-                    />
+              {isActive ? (
+                <div className="text-center space-y-4">
+                  <div className="text-5xl font-mono font-bold text-white tracking-wider font-variant-numeric">
+                    {formatDuration(elapsedSeconds)}
                   </div>
-                </div>
-
-                <div className="timer-display-container">
-                  <svg className="timer-circle-svg">
-                    <circle cx="110" cy="110" r="100" className="timer-circle-bg" />
-                    <circle 
-                      cx="110" 
-                      cy="110" 
-                      r="100" 
-                      className={`timer-circle-progress ${isActive ? 'active' : ''}`}
-                      style={{
-                        strokeDashoffset: isActive 
-                          ? 628 - (628 * (elapsedSeconds % 60)) / 60 
-                          : 628
-                      }}
-                    />
-                  </svg>
-
-                  <div className="timer-text-container">
-                    <div className={`timer-time ${isActive ? 'active' : ''}`}>
-                      {formatTime(elapsedSeconds)}
-                    </div>
-                    <div className="timer-label">
-                      {isActive ? 'Tracking' : 'Idle'}
-                    </div>
-                  </div>
-                </div>
-
-                {isActive ? (
-                  <button 
-                    type="button" 
-                    className="btn btn-danger" 
+                  <button
+                    type="button"
                     onClick={handleStopTracking}
                     disabled={trackerLoading}
-                    style={{ width: '180px', height: '48px' }}
+                    className="w-full bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2 group"
                   >
-                    <Square size={18} fill="#fff" />
-                    Stop Tracker
+                    {trackerLoading ? <Loader2 className="animate-spin" /> : <Square size={20} className="group-hover:fill-current" />}
+                    Stop Tracking
                   </button>
-                ) : (
-                  <button 
-                    type="submit" 
-                    className="btn btn-success" 
-                    disabled={trackerLoading}
-                    style={{ width: '180px', height: '48px' }}
-                  >
-                    <Play size={18} fill="#fff" />
-                    Start Tracker
-                  </button>
-                )}
-              </form>
-            </div>
-
-            {/* Quick summary stats */}
-            <div className="stats-grid">
-              <div className="stat-card glass-panel">
-                <div className="stat-icon-wrapper primary">
-                  <Activity size={22} />
-                </div>
-                <div className="stat-content">
-                  <span className="source-title stat-value">{formatTime(getTodayTime())}</span>
-                  <span className="stat-label">Hours Tracked Today</span>
-                </div>
-              </div>
-
-              <div className="stat-card glass-panel">
-                <div className="stat-icon-wrapper secondary">
-                  <Clock size={22} />
-                </div>
-                <div className="stat-content">
-                  <span className="stat-value">{formatTime(getWeeklyTime())}</span>
-                  <span className="stat-label">Hours Tracked 7 Days</span>
-                </div>
-              </div>
-
-              <div className="stat-card glass-panel">
-                <div className="stat-icon-wrapper success">
-                  <CheckCircle2 size={22} />
-                </div>
-                <div className="stat-content">
-                  <span className="stat-value">{myLogs.length}</span>
-                  <span className="stat-label">Completed Sessions</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 2: LOG HISTORY */}
-        {currentView === 'history' && (
-          <div>
-            <div className="page-header">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h1 className="page-title">Personal Logs</h1>
-                  <p className="page-subtitle">Your historical timesheets logged on the Akestron network.</p>
-                </div>
-                <button className="btn btn-secondary" onClick={exportLogsToCSV}>
-                  <Download size={16} />
-                  Export CSV
-                </button>
-              </div>
-            </div>
-
-            <div className="logs-section glass-panel">
-              <div className="table-container">
-                <table className="logs-table">
-                  <thead>
-                    <tr>
-                      <th>Task Description</th>
-                      <th>Start Time</th>
-                      <th>End Time</th>
-                      <th style={{ textAlign: 'right' }}>Total Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {myLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="empty-state">
-                          No logged sessions yet. Start your tracker from the workspace.
-                        </td>
-                      </tr>
-                    ) : (
-                      myLogs.map(log => (
-                        <tr key={log.id}>
-                          <td className="task-description-cell">{log.task_description}</td>
-                          <td>{formatDateTime(log.start_time)}</td>
-                          <td>{formatDateTime(log.end_time)}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <span className="duration-tag">{formatTime(log.duration_seconds)}</span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 3: ADMIN PANEL */}
-        {currentView === 'admin' && user.role === 'admin' && (
-          <div>
-            <div className="page-header">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-                <div>
-                  <h1 className="page-title">Agency Dashboard</h1>
-                  <p className="page-subtitle">Monitor live operations, track team logs, and review metrics.</p>
-                </div>
-                <button className="btn btn-primary" onClick={exportLogsToCSV}>
-                  <Download size={16} />
-                  Export All Logs (CSV)
-                </button>
-              </div>
-            </div>
-
-            {/* Section: Live Activity */}
-            <div className="logs-section" style={{ marginTop: 0 }}>
-              <div className="section-header-row">
-                <h2 className="section-title">Live Status (Clocked In Now)</h2>
-                <span className="active-pulse-indicator">
-                  <span className="pulse-dot" />
-                  Live Syncing
-                </span>
-              </div>
-
-              {activeSessions.length === 0 ? (
-                <div className="glass-panel empty-state" style={{ padding: '32px 16px' }}>
-                  No members are currently tracking time.
                 </div>
               ) : (
-                <div className="active-users-grid">
-                  {activeSessions.map(session => (
-                    <div key={session.id} className="active-user-card glass-panel">
-                      <div className="active-user-header">
-                        <div>
-                          <div className="active-user-name">{session.user_name}</div>
-                          <div style={{ fontSize: '11px', color: '#64748b' }}>{session.user_email}</div>
+                <button
+                  type="submit"
+                  disabled={trackerLoading || !taskDescription.trim()}
+                  className="w-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2 group"
+                >
+                  {trackerLoading ? <Loader2 className="animate-spin" /> : <Play size={20} className="group-hover:fill-current" />}
+                  Start Task
+                </button>
+              )}
+            </form>
+          </div>
+        </div>
+
+        {/* Right Column: History */}
+        <div className="md:col-span-2">
+          <div className="bg-neutral-800 border border-neutral-700 rounded-2xl p-6 h-full min-h-[500px]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Clock size={20} className="text-neutral-500" />
+                Team Activity
+              </h2>
+              <button onClick={loadTeamLogs} className="text-sm text-blue-400 hover:text-blue-300">
+                Refresh
+              </button>
+            </div>
+
+            {teamLogs.length === 0 ? (
+              <div className="text-center text-neutral-500 py-12">
+                No tracked time yet.
+              </div>
+            ) : (
+              <div className="space-y-3 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
+                {teamLogs.map(log => (
+                  <div key={log.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="w-6 h-6 rounded-full bg-neutral-700 flex items-center justify-center text-xs font-bold shrink-0">
+                          {log.user_name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="active-pulse-indicator" style={{ fontSize: '10px' }}>
-                          <span className="pulse-dot" />
-                          Tracking
-                        </span>
+                        <span className="font-medium text-neutral-300 truncate">{log.user_name}</span>
                       </div>
-                      <div className="active-user-task">
-                        {session.task_description}
-                      </div>
-                      <div className="active-user-time">
-                        Started: {new Date(session.start_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                      <p className="text-white text-sm sm:text-base break-words line-clamp-2">{log.task_description}</p>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        {new Date(log.start_time).toLocaleString(undefined, {
+                          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div className="text-left sm:text-right shrink-0">
+                      <div className="text-lg font-mono font-semibold text-blue-400">
+                        {formatDuration(log.duration_seconds)}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Section: Historical logs list */}
-            <div className="logs-section" style={{ marginTop: 40 }}>
-              <div className="section-header-row" style={{ flexWrap: 'wrap', gap: 16 }}>
-                <h2 className="section-title">Team History Logs</h2>
-                <div className="filters-bar">
-                  <span className="input-label" style={{ margin: 0 }}>Filter member:</span>
-                  <select 
-                    className="filter-select"
-                    value={adminUserFilter}
-                    onChange={(e) => setAdminUserFilter(e.target.value)}
-                  >
-                    <option value="">All Users</option>
-                    {usersList.map(u => (
-                      <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                    ))}
-                  </select>
-                </div>
+                  </div>
+                ))}
               </div>
-
-              <div className="glass-panel" style={{ overflow: 'hidden' }}>
-                <div className="table-container">
-                  <table className="logs-table">
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Task Description</th>
-                        <th>Start Time</th>
-                        <th>End Time</th>
-                        <th style={{ textAlign: 'right' }}>Total Duration</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminLoading ? (
-                        <tr>
-                          <td colSpan="5" className="empty-state">
-                            <Loader2 size={18} className="spinner" style={{ display: 'inline', animation: 'spin 1s linear infinite', marginRight: '8px' }} />
-                            Updating logs...
-                          </td>
-                        </tr>
-                      ) : teamLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan="5" className="empty-state">
-                            No matching completed logs found.
-                          </td>
-                        </tr>
-                      ) : (
-                        teamLogs.map(log => (
-                          <tr key={log.id}>
-                            <td>
-                              <div style={{ fontWeight: 600 }}>{log.user_name}</div>
-                              <div style={{ fontSize: '11px', color: '#64748b' }}>{log.user_email}</div>
-                            </td>
-                            <td className="task-description-cell">{log.task_description}</td>
-                            <td>{formatDateTime(log.start_time)}</td>
-                            <td>{formatDateTime(log.end_time)}</td>
-                            <td style={{ textAlign: 'right' }}>
-                              <span className="duration-tag">{formatTime(log.duration_seconds)}</span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
-        )}
-
+        </div>
       </main>
     </div>
   );
