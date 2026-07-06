@@ -24,9 +24,9 @@ export type TrackerLog = {
 };
 
 export async function getActiveTask(userName: string): Promise<TrackerLog | null> {
-  await ensureDb();
-  const db = getDb();
   try {
+    await ensureDb();
+    const db = getDb();
     const res = await db.query(
       "SELECT * FROM tracker_logs WHERE team_member_name = $1 AND status = 'active' LIMIT 1",
       [userName]
@@ -39,9 +39,9 @@ export async function getActiveTask(userName: string): Promise<TrackerLog | null
 }
 
 export async function getAllLogs(): Promise<TrackerLog[]> {
-  await ensureDb();
-  const db = getDb();
   try {
+    await ensureDb();
+    const db = getDb();
     const res = await db.query(
       "SELECT * FROM tracker_logs ORDER BY start_time DESC LIMIT 100"
     );
@@ -53,9 +53,9 @@ export async function getAllLogs(): Promise<TrackerLog[]> {
 }
 
 export async function startTask(userName: string, taskDescription: string) {
-  await ensureDb();
-  const db = getDb();
   try {
+    await ensureDb();
+    const db = getDb();
     // Stop any existing active task for this user
     await stopTask(userName);
     
@@ -75,9 +75,9 @@ export async function startTask(userName: string, taskDescription: string) {
 }
 
 export async function stopTask(userName: string) {
-  await ensureDb();
-  const db = getDb();
   try {
+    await ensureDb();
+    const db = getDb();
     const active = await getActiveTask(userName);
     if (active) {
       const endTime = new Date();
