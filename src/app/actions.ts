@@ -3,8 +3,14 @@
 import { getDb, initDb } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 
-// Ensure DB is initialized
-initDb();
+// Track if DB is initialized in this execution context
+let dbInitialized = false;
+async function ensureDb() {
+  if (!dbInitialized) {
+    await initDb();
+    dbInitialized = true;
+  }
+}
 
 export type TrackerLog = {
   id: number;
@@ -18,6 +24,7 @@ export type TrackerLog = {
 };
 
 export async function getActiveTask(userName: string): Promise<TrackerLog | null> {
+  await ensureDb();
   const db = getDb();
   try {
     const res = await db.query(
@@ -32,6 +39,7 @@ export async function getActiveTask(userName: string): Promise<TrackerLog | null
 }
 
 export async function getAllLogs(): Promise<TrackerLog[]> {
+  await ensureDb();
   const db = getDb();
   try {
     const res = await db.query(
@@ -45,6 +53,7 @@ export async function getAllLogs(): Promise<TrackerLog[]> {
 }
 
 export async function startTask(userName: string, taskDescription: string) {
+  await ensureDb();
   const db = getDb();
   try {
     // Stop any existing active task for this user
@@ -66,6 +75,7 @@ export async function startTask(userName: string, taskDescription: string) {
 }
 
 export async function stopTask(userName: string) {
+  await ensureDb();
   const db = getDb();
   try {
     const active = await getActiveTask(userName);
